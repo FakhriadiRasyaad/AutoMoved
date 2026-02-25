@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>Input User</title>
+  <link rel="stylesheet" href="./assets/css/styles.css">
+</head>
+<body>
+
+<script>
+  if (!localStorage.getItem("currentAdmin")) {
+    window.location.href = "index.html";
+  }
+</script>
+
+<div class="container">
+  <h1>Input Data User ✨</h1>
+
+  <form id="userForm">
+    <input type="text" id="email" placeholder="Nama User">
+    <input type="text"  id="nama"  placeholder="Email User"       required>
+    <input type="text"  id="nohp"  placeholder="Nomor Telepon"   required>
+    <button type="submit">Mulai Sesi</button>
+  </form>
+</div>
+
+<script type="module">
+  import { supabase } from "./assets/js/supabase.js";
+
+  document.getElementById("userForm").addEventListener("submit", async function(e) {
+    e.preventDefault();
+
+    const admin    = JSON.parse(localStorage.getItem("currentAdmin"));
+    const nama     = document.getElementById("nama").value.trim();
+    const nohp     = document.getElementById("nohp").value.trim();
+    const email    = document.getElementById("email").value.trim() || null;
+
+    if (!nama || !nohp) {
+      alert("Nama dan nomor HP wajib diisi!");
+      return;
+    }
+
+    // Ambil branch_id dari admin yang login
+    // Jika superadmin tidak punya branch_id, ambil dari profiles
+    let branchId = admin.branch_id || null;
+
+    if (!branchId) {
+      // Superadmin: ambil branch_id dari profiles via Supabase
+      const { data: profileData } = await supabase.rpc("get_my_profile");
+      branchId = profileData?.[0]?.branch_id ?? null;
+    }
+
+    if (!branchId) {
+      alert("Akun ini tidak terhubung ke cabang manapun. Hubungi superadmin.");
+      return;
+    }
+
+    // Simpan guest ke Supabase
+    const { data, error } = await supabase
+      .from("guests")
+      .insert([{
+        nama:      nama,
+        nohp:      nohp,
+        email:     email,
+        branch_id: branchId
+      }])
+      .select()
+      .single();
+
+    if (error || !data) {
+      alert("Gagal menyimpan data user: " + (error?.message ?? "Unknown error"));
+      return;
+    }
+
+    // Simpan ke localStorage untuk halaman berikutnya
+    localStorage.setItem("currentUser", JSON.stringify({
+      id:        data.id,
+      nama:      data.nama,
+      nohp:      data.nohp,
+      email:     data.email ?? "",
+      branch_id: data.branch_id,
+      admin_id:  admin.id
+    }));
+
+    window.location.href = "paket.html";
+  });
+</script>
+
+</body>
+</html>

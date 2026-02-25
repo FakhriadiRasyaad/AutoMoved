@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>Cetak Foto</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/styles.css">
+ 
+</head>
+<body>
+
+<div class="cetak-container">
+  <h1>Siap Cetak 🖨️</h1>
+  <div class="cetak-wrapper">
+
+    <div class="cetak-preview-side">
+      <h2>Preview Hasil</h2>
+      <div class="cetak-canvas-box">
+        <p class="no-preview" id="noPreview">⏳ Memuat preview...</p>
+        <img id="previewImg" alt="Preview">
+      </div>
+      <p id="infoLayout" style="font-size:11px;color:#888;margin-top:8px;text-align:center;"></p>
+    </div>
+
+    <div class="cetak-info-side">
+      <div class="cetak-card">
+        <h2>Info Sesi</h2>
+        <div class="info-row"><span>Nama</span>   <strong id="infoNama">-</strong></div>
+        <div class="info-row"><span>Paket</span>  <strong id="infoPaket">-</strong></div>
+        <div class="info-row"><span>Layout</span> <strong id="infoLayoutName">-</strong></div>
+        <div class="info-row"><span>Filter</span> <strong id="infoFilter">-</strong></div>
+        <div class="info-row"><span>Frame</span>  <strong id="infoFrame">-</strong></div>
+        <div class="info-row"><span>Stiker</span> <strong id="infoStiker">-</strong></div>
+      </div>
+
+      <div class="cetak-card">
+        <h2>Jumlah Cetak</h2>
+        <div class="qty-control">
+          <button onclick="changeQty(-1)">−</button>
+          <span id="qtyDisplay">1</span>
+          <button onclick="changeQty(1)">+</button>
+        </div>
+        <p style="font-size:11px;color:#888;margin-top:8px;text-align:center;">Maks 3x cetak per sesi</p>
+      </div>
+
+      <div class="cetak-actions">
+        <button id="btnCetak"    onclick="doCetak()"    class="btn-cetak"  disabled>🖨️ Cetak Sekarang</button>
+        <button id="btnDownload" onclick="doDownload()" class="btn-outline" disabled>⬇️ Download</button>
+        <button onclick="window.location.href='pilih-frame.html'" class="btn-grey">← Edit Ulang</button>
+        <button onclick="selesaiSesi()" class="btn-green">✅ Selesai</button>
+      </div>
+      <p id="msgCetak"></p>
+    </div>
+  </div>
+</div>
+
+<!-- Print area — gambar blob diset saat cetak -->
+<div id="printArea"><img id="printImg" alt="Print"></div>
+
+<script type="module">
+  import { supabase } from "./assets/js/supabase.js";
+
+  let user     = null;
+  let admin    = null;
+  let finalUrl = null;   // signed URL Supabase
+  let blobUrl  = null;   // blob URL lokal — untuk print & download tanpa CORS
+  let qty      = 1;
+
+  // ── Guard & init ──────────────────────────────────────────────────────
+  try {
+    admin = JSON.parse(localStorage.getItem("currentAdmin") || "null");
+    user  = JSON.parse(localStorage.getItem("currentUser")  || "null");
+    if (!admin || !user) { window.location.href = "index.html"; }
+  } catch(e) { window.location.href = "index.html"; }
+
+  finalUrl = user?.finalUrl ?? null;
+
+  if (!finalUrl && !user?.hasilPath) {
+    setPreviewError("❌ Foto belum diupload. Kembali ke pilih-frame dan klik Cetak ulang.");
+  } else if (!finalUrl && user?.hasilPath) {
+    refreshSignedUrl().then(ok => { if (ok) loadPreview(); });
+  } else {
+    loadPreview();
+  }
+
+  fillInfoSesi();
+
+  // ── Isi info sesi ─────────────────────────────────────────────────────
+  function fillInfoSesi() {
+    if (!user) return;
+    document.getElementById("infoNama").textContent       = user.nama        ?? "-";
+    document.getElementById("infoPaket").textContent      = user.paket?.nama ?? "-";
+    document.getElementById("infoLayoutName").textContent = user.layout?.nama ?? "-";
+    document.getElementById("infoFilter").textContent     =
+      (!user.filter || user.filter === "none") ? "Original" : "Aktif";
+    document.getElementById("infoFrame").textContent      = user.frame?.name ?? "Tanpa Frame";
+    document.getElementById("infoStiker").textContent     =
+      (user.stiker?.length > 0) ? `${user.stiker.length} stiker` : "Tidak ada";
+    document.getElementById("infoLayout").textContent     =
+      `${user.layout?.orientasi ?? ""} · ${user.layout?.rows ?? "-"}×${user.layout?.cols ?? "-"}`;
+  }
+
+  // ── Refresh signed URL ────────────────────────────────────────────────
+  async function refreshSignedUrl() {
+    try {
+      setPreviewMsg("⏳ Memperbarui akses foto...");
+      const { data, error } = await supabase.storage
+        .from("photos").createSignedUrl(user.hasilPath, 3600);
+      if (error || !data?.signedUrl) throw new Error(error?.message ?? "Gagal buat signed URL");
+      finalUrl      = data.signedUrl;
+      user.finalUrl = finalUrl;
+      localStorage.setItem("currentUser", JSON.stringify(user));
+      return true;
+    } catch(e) {
+      setPreviewError("❌ Gagal akses foto: " + e.message);
+      return false;
+    }
+  }
+
+  // ── Load preview — fetch → blob (hindari CORS saat print) ────────────
+  async function loadPreview() {
+    setPreviewMsg("⏳ Memuat preview...");
+    try {
+      const res = await fetch(finalUrl);
+      if (!res.ok) {
+        // Mungkin signed URL expired — coba refresh sekali
+        const ok = await refreshSignedUrl();
+        if (!ok) return;
+        const res2 = await fetch(finalUrl);
+        if (!res2.ok) throw new Error("HTTP " + res2.status);
+        const blob2 = await res2.blob();
+        blobUrl = URL.createObjectURL(blob2);
+      } else {
+        const blob = await res.blob();
+        blobUrl = URL.createObjectURL(blob);
+      }
+
+      // Tampilkan preview
+      const previewImg = document.getElementById("previewImg");
+      previewImg.onload = () => {
+        document.getElementById("noPreview").style.display = "none";
+        previewImg.style.display = "block";
+        // preview loaded — user klik tombol untuk download
+      };
+      previewImg.src = blobUrl;
+
+      // Enable tombol — blob sudah siap
+      document.getElementById("btnCetak").disabled    = false;
+      document.getElementById("btnDownload").disabled = false;
+
+    } catch(e) {
+      setPreviewError("❌ Gagal load gambar: " + e.message + ". Coba edit ulang.");
+    }
+  }
+
+  // ── Auto-save lokal jika Folder B sudah diset ─────────────────────────
+  async function autoSaveLokal() {
+    const storageKey = "folder_admin_" + admin.id;
+    const setting    = JSON.parse(localStorage.getItem(storageKey) || "{}");
+    if (!setting.folderB || !blobUrl) return;
+
+    const nama = (user.nama ?? "guest").replace(/[^a-zA-Z0-9]/g, "_");
+    const tgl  = new Date().toISOString().slice(0, 10);
+    const link = document.createElement("a");
+    link.href  = blobUrl;
+    link.download = `${nama}_${tgl}.jpg`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showMsg("💾 Tersimpan otomatis: " + link.download, "#7b1fa2");
+  }
+
+  // ── Qty ───────────────────────────────────────────────────────────────
+  window.changeQty = function(delta) {
+    qty = Math.max(1, Math.min(3, qty + delta));
+    document.getElementById("qtyDisplay").textContent = qty;
+  };
+
+  // ── CETAK — pakai blobUrl (sudah lokal, tidak ada CORS) ───────────────
+  window.doCetak = function() {
+    if (!blobUrl) { showMsg("❌ Gambar belum siap.", "red"); return; }
+    showMsg("⏳ Menyiapkan cetak...", "#666");
+
+    const printImg  = document.getElementById("printImg");
+    const printArea = document.getElementById("printArea");
+
+    // Untuk multi-copy: duplikasi halaman dalam 1 print job via CSS
+    if (qty > 1) {
+      // Buat halaman cetak dengan qty copies menggunakan CSS repeat
+      let pages = "";
+      for (let i = 0; i < qty; i++) {
+        pages += `<div style="page-break-after:${i < qty - 1 ? 'always' : 'avoid'};
+          width:100vw;height:100vh;display:flex;align-items:center;
+          justify-content:center;background:white;">
+          <img src="${blobUrl}" style="max-width:100%;max-height:100vh;object-fit:contain;">
+        </div>`;
+      }
+      printArea.innerHTML = pages;
+    } else {
+      printImg.src = blobUrl;
+      printArea.innerHTML = `<img src="${blobUrl}" style="max-width:100%;max-height:100vh;object-fit:contain;">`;
+    }
+
+    printArea.style.display = "flex";
+    setTimeout(() => {
+      window.print();
+      // Reset setelah print
+      setTimeout(() => {
+        printArea.style.display = "none";
+        printArea.innerHTML = `<img id="printImg" alt="Print">`;
+        showMsg("✅ " + qty + "x halaman dikirim ke printer!", "green");
+      }, 500);
+    }, 200);
+  };
+
+  // ── DOWNLOAD ──────────────────────────────────────────────────────────
+  window.doDownload = function() {
+    if (!blobUrl) { showMsg("❌ Gambar belum siap.", "red"); return; }
+    const nama = (user.nama ?? "foto").replace(/[^a-zA-Z0-9]/g, "_");
+    const tgl  = new Date().toISOString().slice(0, 10);
+    const link = document.createElement("a");
+    link.href  = blobUrl;
+    link.download = `photobooth_${nama}_${tgl}.jpg`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showMsg("✅ Foto berhasil didownload!", "green");
+  };
+
+  // ── Selesai ───────────────────────────────────────────────────────────
+  window.selesaiSesi = async function() {
+    if (!confirm("Sesi selesai? Data tamu akan direset.")) return;
+    showMsg("⏳ Menyimpan...", "#666");
+    if (user?.session_id) {
+      try {
+        await supabase.from("sessions").update({ status: "done" }).eq("id", user.session_id);
+      } catch(e) { console.warn(e); }
+    }
+    if (blobUrl) URL.revokeObjectURL(blobUrl);
+    localStorage.removeItem("finalImage");
+    localStorage.removeItem("currentUser");
+    window.location.href = "tutorial.html";
+  };
+
+  // ── Helpers ───────────────────────────────────────────────────────────
+  function setPreviewMsg(text) {
+    const el = document.getElementById("noPreview");
+    el.textContent = text; el.style.display = "block";
+    document.getElementById("previewImg").style.display = "none";
+  }
+  function setPreviewError(text) {
+    setPreviewMsg(text);
+  }
+  function showMsg(text, color) {
+    const el = document.getElementById("msgCetak");
+    el.textContent = text; el.style.color = color;
+  }
+</script>
+
+</body>
+</html>

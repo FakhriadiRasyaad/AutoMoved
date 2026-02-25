@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>Pilih Foto</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/styles.css">
+</head>
+<body>
+
+<script>
+  if (!localStorage.getItem("currentAdmin") || !localStorage.getItem("currentUser")) {
+    window.location.href = "index.html";
+  }
+  const _u = JSON.parse(localStorage.getItem("currentUser"));
+  if (!_u?.foto || _u.foto.length === 0) window.location.href = "foto.html";
+</script>
+
+<div class="pilih-container">
+  <h1>Pilih Foto Terbaik ✨</h1>
+
+  <div class="pilih-topbar">
+    <p id="limitText"></p>
+    <p id="selectedCount"></p>
+  </div>
+
+  <div class="foto-grid" id="fotoGrid"></div>
+
+  <div class="pilih-actions">
+    <button class="secondary" onclick="window.location.href='foto.html'">← Ambil Foto Lagi</button>
+    <button onclick="lanjut()" id="btnLanjut" disabled>Lanjut →</button>
+  </div>
+</div>
+
+<style>
+  .pilih-container  { max-width: 700px; margin: 0 auto; padding: 24px 16px; }
+  .pilih-topbar     { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  #limitText        { color: #666; font-size: 14px; }
+  #selectedCount    { color: #e91e8c; font-weight: 600; font-size: 14px; }
+  .pilih-actions    { display: flex; gap: 12px; justify-content: center; margin-top: 20px; flex-wrap: wrap; }
+  .foto-grid        { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
+  .foto-item        { position: relative; border-radius: 8px; overflow: hidden; cursor: pointer; border: 3px solid transparent; transition: all 0.2s; aspect-ratio: 1; }
+  .foto-item img    { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+  .foto-item:hover  { border-color: #e91e8c88; transform: scale(1.02); }
+  .foto-item.selected { border-color: #e91e8c; }
+  .foto-badge       { position: absolute; top: 5px; left: 5px; background: #e91e8c; color: white; border-radius: 50%; width: 24px; height: 24px; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+  .foto-badge.hidden { display: none; }
+  .foto-overlay     { position: absolute; inset: 0; background: rgba(233,30,140,0.15); opacity: 0; transition: opacity 0.2s; }
+  .foto-item.selected .foto-overlay { opacity: 1; }
+</style>
+
+<script>
+  let user         = JSON.parse(localStorage.getItem("currentUser"));
+  const MAX_PILIH  = 12;
+
+  document.getElementById("limitText").textContent =
+    `Pilih hingga ${MAX_PILIH} foto (nanti drag & drop ke layout)`;
+
+  user.selectedFoto = [];
+  localStorage.setItem("currentUser", JSON.stringify(user));
+
+  const grid = document.getElementById("fotoGrid");
+
+  user.foto.forEach((foto, index) => {
+    const div     = document.createElement("div");
+    div.className = "foto-item";
+    div.innerHTML = `
+      <img src="${foto}" draggable="false">
+      <div class="foto-overlay"></div>
+      <div class="foto-badge hidden"></div>
+    `;
+    div.onclick = () => toggleSelect(index, div);
+    grid.appendChild(div);
+  });
+
+  function updateCount() {
+    const count = user.selectedFoto.length;
+    document.getElementById("selectedCount").textContent =
+      `${count} / ${MAX_PILIH} dipilih`;
+    document.getElementById("btnLanjut").disabled = count === 0;
+  }
+
+  function toggleSelect(index, element) {
+    const src   = user.foto[index];
+    const badge = element.querySelector(".foto-badge");
+
+    if (user.selectedFoto.includes(src)) {
+      user.selectedFoto = user.selectedFoto.filter(f => f !== src);
+      element.classList.remove("selected");
+      badge.classList.add("hidden");
+    } else {
+      if (user.selectedFoto.length >= MAX_PILIH) {
+        alert(`Maksimal ${MAX_PILIH} foto yang bisa dipilih!`);
+        return;
+      }
+      user.selectedFoto.push(src);
+      element.classList.add("selected");
+    }
+
+    // Update nomor urut semua badge
+    let urutan = 1;
+    grid.querySelectorAll(".foto-item").forEach((item, i) => {
+      const b = item.querySelector(".foto-badge");
+      if (user.selectedFoto.includes(user.foto[i])) {
+        b.textContent = urutan++;
+        b.classList.remove("hidden");
+      } else {
+        b.classList.add("hidden");
+      }
+    });
+
+    localStorage.setItem("currentUser", JSON.stringify(user));
+    updateCount();
+  }
+
+  function lanjut() {
+    user = JSON.parse(localStorage.getItem("currentUser"));
+    if (!user.selectedFoto || user.selectedFoto.length === 0) {
+      alert("Pilih minimal 1 foto!");
+      return;
+    }
+    window.location.href = "pilih-frame.html";
+  }
+
+  updateCount();
+</script>
+
+</body>
+</html>

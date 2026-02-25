@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>Frame & Stiker</title>
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+<script>
+if(!localStorage.getItem("currentAdmin") || !localStorage.getItem("currentUser")){
+  window.location.href = "index.html";
+}
+</script>
+
+<div class="frame-container">
+  <h1>Pilih Frame 🎀</h1>
+
+  <div class="frame-preview">
+    <img id="mainPhoto">
+    <div id="frameOverlay" class="frame-overlay"></div>
+  </div>
+
+  <div class="frame-options">
+    <div class="frame-btn pink" onclick="selectFrame('pink')"></div>
+    <div class="frame-btn blue" onclick="selectFrame('blue')"></div>
+    <div class="frame-btn gold" onclick="selectFrame('gold')"></div>
+    <div class="frame-btn none" onclick="selectFrame('none')">No Frame</div>
+  </div>
+
+  <button onclick="lanjut()">Lanjut Cetak</button>
+</div>
+
+<script>
+  let user = JSON.parse(localStorage.getItem("currentUser"));
+  let admin = JSON.parse(localStorage.getItem("currentAdmin"));
+  
+  console.log("=== DEBUG frame-stiker ===");
+  console.log("user:", user);
+  console.log("selectedFoto:", user ? user.selectedFoto : "user null");
+  
+  if(!user || !user.selectedFoto || user.selectedFoto.length === 0){
+    console.log("REDIRECT ke edit-effect.html karena selectedFoto kosong");
+    window.location.href = "edit-effect.html";
+  }
+  
+  const mainPhoto = document.getElementById("mainPhoto");
+  const overlay = document.getElementById("frameOverlay");
+  const optionsContainer = document.querySelector(".frame-options");
+  
+  // tampilkan foto utama
+  mainPhoto.src = user.selectedFoto[0];
+  
+  // =========================
+  // FRAME DEFAULT
+  // =========================
+  function selectFrame(type){
+    user.selectedFrame = type;
+    user.selectedFrameCustom = null;
+  
+    overlay.className = "frame-overlay";
+    overlay.style.backgroundImage = "";
+  
+    if(type !== "none"){
+      overlay.classList.add(type);
+    }
+  
+    localStorage.setItem("currentUser", JSON.stringify(user));
+  }
+  
+  // =========================
+  // FRAME CUSTOM DARI ADMIN
+  // =========================
+  
+  if(admin){
+    const frameStorageKey = "frames_admin_" + admin.id;
+    const adminFrames = JSON.parse(localStorage.getItem(frameStorageKey)) || [];
+  
+    adminFrames.forEach((frameBase64) => {
+  
+      const div = document.createElement("div");
+      div.className = "frame-btn custom";
+      div.style.backgroundImage = `url(${frameBase64})`;
+      div.style.backgroundSize = "cover";
+      div.style.backgroundPosition = "center";
+  
+      div.onclick = function(){
+        selectCustomFrame(frameBase64);
+      };
+  
+      optionsContainer.appendChild(div);
+    });
+  }
+  
+  function selectCustomFrame(frameBase64){
+  
+    user.selectedFrame = null;
+    user.selectedFrameCustom = frameBase64;
+  
+    overlay.className = "frame-overlay";
+    overlay.style.backgroundImage = `url(${frameBase64})`;
+    overlay.style.backgroundSize = "cover";
+    overlay.style.backgroundPosition = "center";
+  
+    localStorage.setItem("currentUser", JSON.stringify(user));
+  }
+  
+  // =========================
+  // LANJUT CETAK
+  // =========================
+  
+  function lanjut(){
+  
+    if(!user.selectedFrame && !user.selectedFrameCustom){
+      user.selectedFrame = "none";
+    }
+  
+    localStorage.setItem("currentUser", JSON.stringify(user));
+    window.location.href = "cetak.html";
+  }
+  </script>
+  
+
+
+
+</body>
+</html>

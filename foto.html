@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>Ambil Foto</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* Gaya dasar */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Poppins', sans-serif;
+      background: linear-gradient(145deg, #fbe9f0, #f9e6f5);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .foto-container {
+      max-width: 700px;
+      width: 100%;
+      background: rgba(255,255,255,0.85);
+      backdrop-filter: blur(12px);
+      border-radius: 80px 20px 80px 20px;
+      border: 5px solid white;
+      box-shadow: 0 30px 40px rgba(255,140,170,0.25), 0 15px 25px rgba(0,0,0,0.1);
+      padding: 30px;
+      text-align: center;
+    }
+    h1 {
+      font-size: 2.5rem;
+      color: #8b5a7a;
+      text-shadow: 4px 4px 0 #fbc1cb;
+      margin-bottom: 20px;
+    }
+    .foto-topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(255,245,250,0.8);
+      padding: 15px 20px;
+      border-radius: 80px 15px 80px 15px;
+      border: 3px solid white;
+      margin-bottom: 25px;
+      box-shadow: 0 10px 15px rgba(255,170,190,0.2);
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .session-timer, .foto-counter {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #6b4e6b;
+      background: white;
+      padding: 8px 20px;
+      border-radius: 60px;
+      box-shadow: 0 6px 0 #f8a5b5;
+      border: 2px solid #ffe0f0;
+    }
+    .camera-select {
+      font-size: 1rem;
+      font-weight: 600;
+      color: #6b4e6b;
+      background: white;
+      padding: 8px 15px;
+      border-radius: 60px;
+      box-shadow: 0 6px 0 #f8a5b5;
+      border: 2px solid #ffe0f0;
+      outline: none;
+      cursor: pointer;
+      font-family: 'Poppins', sans-serif;
+      flex: 1 1 auto;
+      max-width: 250px;
+    }
+    .camera-select:hover {
+      background: #fff9fc;
+    }
+    .camera-box {
+      position: relative;
+      width: 100%;
+      max-width: 500px;
+      margin: 0 auto;
+      border-radius: 60px 15px 60px 15px;
+      overflow: hidden;
+      border: 5px solid white;
+      box-shadow: 0 20px 30px rgba(255,160,180,0.3);
+      background: #000;
+    }
+    #video {
+      width: 100%;
+      display: block;
+      transform: scaleX(-1); /* mirror */
+    }
+    .countdown-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,0.4);
+      color: white;
+      font-size: 8rem;
+      font-weight: 800;
+      text-shadow: 4px 4px 0 #ff9eb5;
+      z-index: 20;
+      pointer-events: none;
+    }
+    .flash {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: white;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.1s;
+      z-index: 15;
+    }
+    .foto-actions {
+      display: flex;
+      gap: 15px;
+      justify-content: center;
+      margin: 25px 0;
+      flex-wrap: wrap;
+    }
+    button {
+      font-family: 'Poppins', sans-serif;
+      font-size: 1.3rem;
+      font-weight: 700;
+      padding: 14px 30px;
+      border: none;
+      border-radius: 80px 15px 80px 15px;
+      cursor: pointer;
+      transition: all 0.1s;
+      border: 3px solid white;
+      box-shadow: 0 10px 0 #e68a9a, 0 5px 15px #ffb0c0;
+    }
+    #btnAmbil {
+      background: linear-gradient(145deg, #ffb3c6, #ffd3b5);
+      color: #6b4e6b;
+    }
+    #btnAmbil:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 15px 0 #e68a9a;
+    }
+    #btnAmbil:active {
+      transform: translateY(5px);
+      box-shadow: 0 5px 0 #e68a9a;
+    }
+    .secondary {
+      background: white;
+      color: #a65b7c;
+      border: 3px solid #fbb1c2;
+      box-shadow: 0 8px 0 #fbb1c2;
+    }
+    .secondary:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 12px 0 #fbb1c2;
+    }
+    .secondary:active {
+      transform: translateY(4px);
+      box-shadow: 0 4px 0 #fbb1c2;
+    }
+    #msgFoto {
+      font-size: 1rem;
+      color: #8b5a7a;
+      background: #fff0f5;
+      padding: 10px;
+      border-radius: 60px;
+      border: 2px dashed #ffb6c1;
+      margin: 15px 0;
+      min-height: 50px;
+    }
+    .preview-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+      gap: 10px;
+      margin-top: 20px;
+      padding: 15px;
+      background: rgba(255,245,250,0.5);
+      border-radius: 60px 15px 60px 15px;
+      border: 3px solid white;
+    }
+    .preview-item {
+      position: relative;
+      border-radius: 30px 5px 30px 5px;
+      overflow: hidden;
+      border: 3px solid white;
+      box-shadow: 0 5px 0 #f8a5b5;
+    }
+    .preview-item img {
+      width: 100%;
+      aspect-ratio: 1;
+      object-fit: cover;
+      display: block;
+    }
+    .btn-hapus-foto {
+      position: absolute;
+      top: 5px;
+      right: 5px;
+      background: #ff8a8a;
+      color: white;
+      border: none;
+      border-radius: 50%;
+      width: 24px;
+      height: 24px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 3px 0 #c45a5a;
+      transition: all 0.1s;
+    }
+    .btn-hapus-foto:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 0 #c45a5a;
+    }
+    @keyframes pulse {
+      0%,100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+    }
+  </style>
+</head>
+<body>
+
+<div class="foto-container">
+  <h1>Ambil Foto 📸</h1>
+
+  <div class="foto-topbar">
+    <div class="session-timer" id="sessionTimer">⏱️ 10:00</div>
+    <select id="cameraSelect" class="camera-select">
+      <option value="">-- Pilih Kamera --</option>
+    </select>
+    <div class="foto-counter" id="fotoCounter">0 / 40 foto</div>
+  </div>
+
+  <div class="camera-box">
+    <video id="video" autoplay playsinline></video>
+    <div class="countdown-overlay" id="countdownOverlay"></div>
+    <div class="flash" id="flash"></div>
+  </div>
+
+  <div class="foto-actions">
+    <button onclick="startCountdown()" id="btnAmbil">📸 Ambil Foto</button>
+    <button class="secondary" onclick="finishSession()" id="btnSelesai">✅ Selesai & Lanjut</button>
+  </div>
+
+  <p id="msgFoto"></p>
+  <div class="preview-grid" id="preview"></div>
+</div>
+
+<script>
+  (function() {
+    // Elemen
+    const video          = document.getElementById("video");
+    const countdownEl    = document.getElementById("countdownOverlay");
+    const flash          = document.getElementById("flash");
+    const preview        = document.getElementById("preview");
+    const fotoCounter    = document.getElementById("fotoCounter");
+    const sessionTimerEl = document.getElementById("sessionTimer");
+    const msgFoto        = document.getElementById("msgFoto");
+    const btnAmbil       = document.getElementById("btnAmbil");
+    const btnSelesai     = document.getElementById("btnSelesai");
+    const cameraSelect   = document.getElementById("cameraSelect");
+
+    // Data user
+    let user = JSON.parse(localStorage.getItem("currentUser"));
+    if (!user) {
+      window.location.href = "index.html";
+      return;
+    }
+
+    let isCounting       = false;
+    let sessionSeconds   = 10 * 60; // 10 menit
+    let sessionTimer     = null;
+    const MAX_FOTO       = 40;
+    const paketLimit     = user.paket?.foto_limit ?? MAX_FOTO;
+    const fotoLimit      = Math.min(paketLimit >= 999 ? MAX_FOTO : paketLimit, MAX_FOTO);
+
+    if (!user.foto) user.foto = [];
+
+    // Daftar kamera
+    let videoDevices = [];
+    let currentStream = null;
+
+    // Fungsi untuk menghentikan stream lama
+    function stopCurrentStream() {
+      if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+        currentStream = null;
+      }
+    }
+
+    // Fungsi untuk memulai kamera dengan deviceId tertentu
+    async function startCamera(deviceId) {
+      stopCurrentStream();
+      const constraints = {
+        video: deviceId ? { deviceId: { exact: deviceId } } : true,
+        audio: false
+      };
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        currentStream = stream;
+        video.srcObject = stream;
+        video.play();
+      } catch (err) {
+        console.error("Gagal mengakses kamera:", err);
+        msgFoto.textContent = "Tidak dapat mengakses kamera yang dipilih.";
+      }
+    }
+
+    // Enumerate devices dan isi select
+    navigator.mediaDevices.enumerateDevices()
+      .then(devices => {
+        videoDevices = devices.filter(d => d.kind === 'videoinput');
+        cameraSelect.innerHTML = '<option value="">-- Pilih Kamera --</option>';
+        videoDevices.forEach((device, index) => {
+          const option = document.createElement('option');
+          option.value = device.deviceId;
+          option.textContent = device.label || `Kamera ${index + 1}`;
+          cameraSelect.appendChild(option);
+        });
+        // Jika ada kamera, pilih yang pertama sebagai default
+        if (videoDevices.length > 0) {
+          const defaultId = videoDevices[0].deviceId;
+          cameraSelect.value = defaultId;
+          startCamera(defaultId);
+        } else {
+          msgFoto.textContent = "Tidak ada kamera yang terdeteksi.";
+        }
+      })
+      .catch(err => {
+        console.error("Gagal enumerate devices:", err);
+        msgFoto.textContent = "Tidak dapat mendeteksi kamera.";
+      });
+
+    // Event change pada select
+    cameraSelect.addEventListener('change', (e) => {
+      const deviceId = e.target.value;
+      if (deviceId) {
+        startCamera(deviceId);
+      } else {
+        stopCurrentStream();
+        video.srcObject = null;
+      }
+    });
+
+    // Timer session
+    function startSessionTimer() {
+      sessionTimer = setInterval(() => {
+        sessionSeconds--;
+        const m = String(Math.floor(sessionSeconds / 60)).padStart(2, "0");
+        const s = String(sessionSeconds % 60).padStart(2, "0");
+        sessionTimerEl.textContent = `⏱️ ${m}:${s}`;
+
+        if (sessionSeconds <= 60) {
+          sessionTimerEl.style.color     = "#e91e8c";
+          sessionTimerEl.style.animation = "pulse 1s infinite";
+        }
+        if (sessionSeconds <= 0) {
+          clearInterval(sessionTimer);
+          msgFoto.textContent   = "⏰ Waktu habis! Melanjutkan...";
+          btnAmbil.disabled     = true;
+          btnSelesai.disabled   = true;
+          setTimeout(() => finishSession(), 2000);
+        }
+      }, 1000);
+    }
+
+    // Update counter
+    function updateCounter() {
+      fotoCounter.textContent = `${user.foto.length} / ${fotoLimit} foto`;
+    }
+
+    // Tampilkan preview
+    function showPreview() {
+      preview.innerHTML = "";
+      user.foto.forEach((foto, index) => {
+        const wrapper    = document.createElement("div");
+        wrapper.className = "preview-item";
+        const img        = document.createElement("img");
+        img.src          = foto;
+        const btn        = document.createElement("button");
+        btn.className    = "btn-hapus-foto";
+        btn.textContent  = "✕";
+        btn.onclick      = () => hapusFoto(index);
+        wrapper.appendChild(img);
+        wrapper.appendChild(btn);
+        preview.appendChild(wrapper);
+      });
+    }
+
+    // Hapus foto
+    function hapusFoto(index) {
+      user.foto.splice(index, 1);
+      localStorage.setItem("currentUser", JSON.stringify(user));
+      updateCounter();
+      showPreview();
+      if (user.foto.length < fotoLimit) {
+        btnAmbil.disabled   = false;
+        msgFoto.textContent = "";
+      }
+    }
+
+    // Ambil foto
+    function takePhoto() {
+      flash.style.opacity = "1";
+      setTimeout(() => flash.style.opacity = "0", 150);
+
+      const canvas  = document.createElement("canvas");
+      canvas.width  = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx     = canvas.getContext("2d");
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, 0, 0);
+
+      user.foto.push(canvas.toDataURL("image/jpeg", 0.85));
+      localStorage.setItem("currentUser", JSON.stringify(user));
+      updateCounter();
+      showPreview();
+
+      if (user.foto.length >= fotoLimit) {
+        msgFoto.textContent = `Foto sudah ${fotoLimit}. Klik Selesai untuk lanjut.`;
+        btnAmbil.disabled   = true;
+      }
+    }
+
+    // Countdown 3 detik
+    window.startCountdown = function() {
+      if (isCounting) return;
+      if (user.foto.length >= fotoLimit) {
+        msgFoto.textContent = `Sudah maksimal ${fotoLimit} foto!`;
+        return;
+      }
+      isCounting = true;
+      btnAmbil.disabled = true;
+      let count = 3;
+      countdownEl.textContent   = count;
+      countdownEl.style.display = "flex";
+
+      const interval = setInterval(() => {
+        count--;
+        if (count > 0) {
+          countdownEl.textContent = count;
+        } else {
+          clearInterval(interval);
+          countdownEl.textContent   = "";
+          countdownEl.style.display = "none";
+          takePhoto();
+          isCounting = false;
+          btnAmbil.disabled = false;
+        }
+      }, 1000);
+    };
+
+    // Selesai sesi
+    window.finishSession = function() {
+      if (user.foto.length === 0) {
+        msgFoto.textContent = "Ambil minimal 1 foto dulu!";
+        return;
+      }
+      clearInterval(sessionTimer);
+      stopCurrentStream();
+      window.location.href = "pilih-foto.html";
+    };
+
+    startSessionTimer();
+    updateCounter();
+    showPreview();
+  })();
+</script>
+
+</body>
+</html>
