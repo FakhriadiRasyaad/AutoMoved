@@ -67,6 +67,10 @@
       <span class="nb-icon">🔄</span>
       <span class="nb-label">Refresh</span>
     </button>
+    <button class="nav-btn" onclick="guestAll()">
+      <span class="nb-icon">👤</span>
+      <span class="nb-label">Customer</span>
+    </button>
   </div>
 
   <!-- ── Chart 7 Hari ── -->
@@ -189,6 +193,7 @@
   function goToFrames()  { window.location.href = "edit-frame.html"; }
   function goToStiker()  { window.location.href = "edit-stiker.html"; }
   function goToFolder()  { window.location.href = "folder.html"; }
+  function guestAll()  { window.location.href = "../guest-select-branch.html"; }
   function refreshAll()  { if (window._refreshAll) window._refreshAll(); }
   function konfirmasi(id){ if (window._konfirmasi) window._konfirmasi(id); }
   function logout()      { if (window._logout) window._logout(); }

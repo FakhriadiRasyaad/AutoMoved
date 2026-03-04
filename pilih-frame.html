@@ -5,19 +5,19 @@
   <title>Pilih Frame & Layout</title>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/css/styles.css">
-  
+</head>
 <body>
 
+<!-- Guard -->
 <script>
   (function() {
-    const a = localStorage.getItem("currentAdmin");
-    const u = localStorage.getItem("currentUser");
-    if (!a || !u) { window.location.href = "index.html"; return; }
+    const gd = sessionStorage.getItem("guestData");
+    const br = sessionStorage.getItem("selectedBranch");
+    if (!gd || !br) { window.location.href = "guest-login.html"; return; }
     try {
-      const p = JSON.parse(u);
-      const hasFoto = (p?.selectedFoto?.length > 0) || (p?.slotPhotos?.filter(Boolean).length > 0);
-      if (!hasFoto) window.location.href = "pilih-foto.html";
-    } catch(e) { window.location.href = "index.html"; }
+      window._guestData  = JSON.parse(gd);
+      window._branchData = JSON.parse(br);
+    } catch(e) { window.location.href = "guest-login.html"; }
   })();
 </script>
 
@@ -29,6 +29,15 @@
     <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
     <p class="upload-status" id="uploadStatus">0 / 0</p>
   </div>
+</div>
+
+<!-- Loading overlay saat fetch foto -->
+<div id="loadingOverlay" style="
+  position:fixed;inset:0;z-index:2000;background:rgba(255,255,255,0.92);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;">
+  <div style="font-size:2.5rem;">📸</div>
+  <p style="font-family:Poppins;font-size:1rem;color:#8b5a7a;font-weight:600;">Memuat foto dari server...</p>
+  <p id="loadingMsg" style="font-family:Poppins;font-size:0.85rem;color:#aaa;"></p>
 </div>
 
 <div class="editor-page">
@@ -43,7 +52,7 @@
       </div>
       <div class="preview-actions">
         <button class="btn-cetak" id="btnCetak" onclick="lanjut()">🖨️ Cetak →</button>
-        <button class="btn-back-small" onclick="window.location.href='pilih-foto.html'">← Ganti Foto</button>
+        <button class="btn-back-small" onclick="window.location.href='guest-gallery.html'">← Kembali ke Galeri</button>
       </div>
       <p id="msgStatus"></p>
     </div>
@@ -105,7 +114,9 @@
         <p style="font-size:12px;color:#888;text-align:center;padding:20px 0;">← Pilih layout dulu</p>
       </div>
       <p class="bank-title">Foto Tersedia:</p>
-      <div class="foto-bank" id="fotoBank"></div>
+      <div class="foto-bank" id="fotoBank">
+        <p style="font-size:12px;color:#aaa;text-align:center;padding:12px 0;">Memuat foto...</p>
+      </div>
     </div>
   </div>
 
@@ -114,18 +125,19 @@
 <script type="module">
   import { supabase } from "./assets/js/supabase.js";
 
-  const user     = JSON.parse(localStorage.getItem("currentUser"));
-  const admin    = JSON.parse(localStorage.getItem("currentAdmin"));
-  const branchId = admin.branch_id;
+  // ── Data dari session ──────────────────────────────────────────────────
+  const guestInfo = window._guestData.guest;   // { nama, ... }
+  const branch    = window._branchData;         // { id, name, ... }
+  const branchId  = branch.id;
 
-  // Foto bisa dari selectedFoto (fresh) atau slotPhotos (edit ulang)
-  const fotos = (user.selectedFoto?.length > 0)
-    ? user.selectedFoto
-    : (user.slotPhotos?.filter(Boolean) ?? []);
+  // ── Subfolder yang boleh masuk sebagai "foto tersedia" ─────────────────
+  const ALLOWED_SUBFOLDERS = ['asli', 'noedit'];
 
-  if (!fotos.length) window.location.href = "pilih-foto.html";
+  // Foto tersedia (signed URLs) — diisi setelah fetch
+  let fotos = [];        // array signed URL string
+  let fotosMeta = [];    // array { path, kind, name } untuk referensi
 
-  // State
+  // ── State editor ──────────────────────────────────────────────────────
   let currentOrientasi = "potret";
   let currentLayout    = null;
   let slotPhotos       = [];
@@ -134,10 +146,14 @@
   let activeStiker     = [];
   let dragSrc          = null;
 
+  // Simpan folder sesi yang ditemukan (untuk upload hasil ke sana)
+  let sessionFolderPath = null;
+
   const canvas      = document.getElementById("previewCanvas");
   const ctx         = canvas.getContext("2d");
   const stikerLayer = document.getElementById("stikerLayer");
 
+  // ── Layouts & Filters ─────────────────────────────────────────────────
   const layoutsPotret = [
     { id:"1x1",     nama:"Single",  rows:1, cols:1, minFoto:1 },
     { id:"2x1",     nama:"Stack 2", rows:2, cols:1, minFoto:2 },
@@ -169,23 +185,150 @@
     { id:"vintage",  nama:"Vintage",  css:"sepia(50%) contrast(90%) brightness(110%)" },
   ];
 
-  // Init
-  renderLayouts("potret");
-  renderFilters();
-  renderFotoBank();
-  loadFrames();
-  loadStiker();
-  const def = layoutsPotret.find(l => fotos.length >= l.minFoto);
-  if (def) {
-    setLayout(def);
-    setTimeout(() => {
-      const first = document.querySelector(".layout-item:not(.disabled)");
-      if (first) first.classList.add("active");
-    }, 50);
-  }
-  document.addEventListener("click", e => { if (!e.target.closest(".stiker-el")) deselectStiker(); });
+  // ── Fetch foto dari Supabase ───────────────────────────────────────────
+  async function fetchGuestPhotos() {
+    const loadMsg = document.getElementById("loadingMsg");
+    loadMsg.textContent = "Mencari folder sesi...";
 
-  // Tab
+    try {
+      // 1. List semua folder di branch
+      const { data: folders, error: listErr } = await supabase.storage
+        .from("photos")
+        .list(branchId, { limit: 100, sortBy: { column: "name", order: "desc" } });
+
+      if (listErr) throw listErr;
+      if (!folders?.length) throw new Error("Tidak ada folder ditemukan.");
+
+      // 2. Filter folder milik guest ini
+      const guestPrefix = guestInfo.nama + '_';
+      const guestFolders = folders.filter(f => f.name.startsWith(guestPrefix) && !f.metadata);
+
+      if (!guestFolders.length) throw new Error("Belum ada foto untuk sesi ini.");
+
+      // Gunakan folder sesi terbaru (sudah sort desc)
+      const latestFolder = guestFolders[0];
+      sessionFolderPath  = `${branchId}/${latestFolder.name}`;
+      loadMsg.textContent = `Folder: ${latestFolder.name}`;
+
+      // 3. List subfolder dalam sesi terbaru
+      const { data: subItems } = await supabase.storage
+        .from("photos")
+        .list(sessionFolderPath, { limit: 20 });
+
+      if (!subItems) throw new Error("Folder sesi kosong.");
+
+      let allFiles = [];
+
+      for (const item of subItems) {
+        if (!item.metadata) {
+          // Subfolder — hanya ambil asli dan noedit
+          const subName = item.name;
+          if (!ALLOWED_SUBFOLDERS.includes(subName)) continue;
+
+          loadMsg.textContent = `Memuat folder ${subName}...`;
+          const { data: files } = await supabase.storage
+            .from("photos")
+            .list(`${sessionFolderPath}/${subName}`, { limit: 100 });
+
+          if (files) {
+            files.forEach(f => {
+              if (f.metadata) {
+                allFiles.push({
+                  path: `${sessionFolderPath}/${subName}/${f.name}`,
+                  kind: subName,
+                  name: f.name
+                });
+              }
+            });
+          }
+        } else {
+          // File langsung di root sesi — anggap sebagai 'asli'
+          if (item.name !== 'hasil.jpg') {
+            allFiles.push({
+              path: `${sessionFolderPath}/${item.name}`,
+              kind: 'asli',
+              name: item.name
+            });
+          }
+        }
+      }
+
+      if (!allFiles.length) throw new Error("Tidak ada foto asli/noedit ditemukan.");
+
+      // Urutkan: asli dulu, lalu noedit, lalu nama file
+      const kindOrder = { asli: 0, noedit: 1 };
+      allFiles.sort((a, b) =>
+        (kindOrder[a.kind] ?? 9) - (kindOrder[b.kind] ?? 9) ||
+        a.name.localeCompare(b.name)
+      );
+
+      loadMsg.textContent = `Membuat URL untuk ${allFiles.length} foto...`;
+
+      // 4. Buat signed URLs
+      const paths = allFiles.map(f => f.path);
+      let signedUrls = [];
+      try {
+        const { data: signed, error: signErr } = await supabase.storage
+          .from("photos")
+          .createSignedUrls(paths, 3600);
+        if (signErr) throw signErr;
+        signedUrls = signed.map(s => s.signedUrl);
+      } catch(e) {
+        // Fallback public URL
+        signedUrls = paths.map(p =>
+          supabase.storage.from("photos").getPublicUrl(p).data.publicUrl
+        );
+      }
+
+      fotos      = signedUrls;
+      fotosMeta  = allFiles;
+
+      return true;
+    } catch(e) {
+      console.error("Fetch foto error:", e);
+      document.getElementById("loadingMsg").textContent = "❌ " + e.message;
+      return false;
+    }
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────────
+  async function init() {
+    const ok = await fetchGuestPhotos();
+
+    // Sembunyikan loading overlay
+    document.getElementById("loadingOverlay").style.display = "none";
+
+    if (!ok || !fotos.length) {
+      document.getElementById("msgStatus").style.color = "red";
+      document.getElementById("msgStatus").textContent = "❌ Gagal memuat foto. Kembali ke galeri.";
+      document.getElementById("btnCetak").disabled = true;
+      return;
+    }
+
+    renderLayouts("potret");
+    renderFilters();
+    renderFotoBank();
+    loadFrames();
+    loadStiker();
+
+    // Pilih layout default yang bisa dipenuhi
+    const def = layoutsPotret.find(l => fotos.length >= l.minFoto);
+    if (def) {
+      setLayout(def);
+      setTimeout(() => {
+        const first = document.querySelector(".layout-item:not(.disabled)");
+        if (first) first.classList.add("active");
+      }, 50);
+    }
+
+    document.addEventListener("click", e => {
+      if (!e.target.closest(".stiker-el")) deselectStiker();
+    });
+  }
+
+  init();
+
+  // ── Tab ───────────────────────────────────────────────────────────────
   window.switchTab = function(tab) {
     ["layout","frame","filter","stiker"].forEach(t => {
       const T = t[0].toUpperCase() + t.slice(1);
@@ -194,7 +337,7 @@
     });
   };
 
-  // Orientasi
+  // ── Orientasi ─────────────────────────────────────────────────────────
   window.setOrientasi = function(ori) {
     currentOrientasi=ori; currentLayout=null; slotPhotos=[];
     document.getElementById("oriBtnPotret")   .classList.toggle("active", ori==="potret");
@@ -261,12 +404,23 @@
   function renderFotoBank() {
     const bank=document.getElementById("fotoBank");
     bank.innerHTML="";
+    if (!fotos.length) {
+      bank.innerHTML = '<p style="font-size:12px;color:#aaa;text-align:center;padding:12px 0;">Tidak ada foto tersedia.</p>';
+      return;
+    }
     fotos.forEach((foto,i)=>{
       const isUsed=slotPhotos.includes(foto);
-      const item=document.createElement("div");
+      const meta  = fotosMeta[i];
+      const item  = document.createElement("div");
       item.className="bank-item"+(isUsed?" used":"");
       item.draggable=!isUsed;
-      item.innerHTML=`<img src="${foto}" draggable="false">`;
+      // Label subfolder kecil
+      item.innerHTML=`<img src="${foto}" draggable="false">
+        <span style="position:absolute;bottom:2px;left:3px;font-size:8px;
+          background:rgba(0,0,0,0.5);color:white;border-radius:3px;padding:1px 4px;">
+          ${meta?.kind ?? ''}
+        </span>`;
+      item.style.position="relative";
       item.addEventListener("dragstart",()=>{if(!isUsed)dragSrc=i;});
       item.addEventListener("dragend",  ()=>dragSrc=null);
       item.addEventListener("touchstart",()=>{if(!isUsed)dragSrc=i;});
@@ -287,7 +441,7 @@
     slotPhotos[idx]=null; renderSlots(); renderFotoBank(); drawCanvas();
   };
 
-  // Frame
+  // ── Frame ─────────────────────────────────────────────────────────────
   async function loadFrames() {
     const {data}=await supabase.from("frames").select("*")
       .eq("branch_id",branchId).eq("is_active",true);
@@ -307,7 +461,7 @@
     el.classList.add("active"); currentFrame=frame; drawCanvas();
   };
 
-  // Filter
+  // ── Filter ────────────────────────────────────────────────────────────
   function renderFilters() {
     const list=document.getElementById("filterList");
     filters.forEach(f=>{
@@ -317,11 +471,13 @@
       thumb.width=thumb.height=70; thumb.className="filter-thumb";
       const tctx=thumb.getContext("2d");
       const img=new Image();
+      img.crossOrigin="anonymous";
       img.onload=()=>{tctx.filter=f.css;tctx.drawImage(img,0,0,70,70);};
       img.src=fotos[0];
       item.appendChild(thumb);
-      item.innerHTML+=`<span>${f.nama}</span>`;
-      item.prepend(thumb);
+      const lbl=document.createElement("span");
+      lbl.textContent=f.nama;
+      item.appendChild(lbl);
       item.onclick=()=>{
         document.querySelectorAll(".filter-item.active").forEach(e=>e.classList.remove("active"));
         item.classList.add("active"); currentFilter=f.css; drawCanvas();
@@ -330,7 +486,7 @@
     });
   }
 
-  // Stiker
+  // ── Stiker ────────────────────────────────────────────────────────────
   async function loadStiker() {
     const {data}=await supabase.from("stickers").select("*")
       .eq("branch_id",branchId).eq("is_active",true);
@@ -439,7 +595,7 @@
     });
   }
 
-  // Draw canvas
+  // ── Draw canvas ───────────────────────────────────────────────────────
   async function drawCanvas(){
     if(!currentLayout)return;
     const layout=currentLayout,pad=10;
@@ -486,7 +642,7 @@
     });
   }
 
-  // Helper: dataURL → Blob
+  // ── Helpers ───────────────────────────────────────────────────────────
   function dataURLtoBlob(dataURL){
     const [h,d]=dataURL.split(",");
     const mime=h.match(/:(.*?);/)[1];
@@ -496,30 +652,30 @@
     return new Blob([buf],{type:mime});
   }
 
-  // Upload progress UI
   function showOverlay(desc){
     document.getElementById("uploadOverlay").classList.add("show");
     document.getElementById("uploadDesc").textContent=desc;
     setProgress(0,0);
   }
-  function hideOverlay(){ document.getElementById("uploadOverlay").classList.remove("show"); }
+  function hideOverlay(){document.getElementById("uploadOverlay").classList.remove("show");}
   function setProgress(done,total){
     const pct=total>0?Math.round(done/total*100):0;
     document.getElementById("progressFill").style.width=pct+"%";
     document.getElementById("uploadStatus").textContent=total>0?`${done} / ${total} file`:pct+"%";
   }
 
-  // ── LANJUT — upload ke Supabase lalu ke cetak.html ───────────────────
+  // ── Lanjut / Upload ───────────────────────────────────────────────────
   window.lanjut = async function(){
     if(!currentLayout){alert("Pilih layout dulu!");return;}
     if(!slotPhotos.some(Boolean)){alert("Isi minimal 1 slot foto!");return;}
+    if(!sessionFolderPath){alert("Folder sesi tidak ditemukan!");return;}
 
     const btn=document.getElementById("btnCetak");
     const msg=document.getElementById("msgStatus");
     btn.disabled=true;
 
     try {
-      // 1. Buat final canvas (foto + frame + filter + stiker)
+      // 1. Render final canvas (foto + frame + stiker)
       msg.style.color="#666"; msg.textContent="Membuat gambar...";
       const fc=document.createElement("canvas");
       fc.width=canvas.width; fc.height=canvas.height;
@@ -530,95 +686,70 @@
         const sw=s.wPct*fc.width,sh=sw*(sImg.height/sImg.width);
         fctx.drawImage(sImg,s.xPct*fc.width-sw/2,s.yPct*fc.height-sh/2,sw,sh);
       }
-      // Kompres — resize jika > 1200px, max file ~4MB
-      const MAX_W = 1200;
-      let _fc = fc;
-      if (fc.width > MAX_W) {
-        const sc = document.createElement("canvas");
-        sc.width = MAX_W;
-        sc.height = Math.round(fc.height * MAX_W / fc.width);
-        sc.getContext("2d").drawImage(fc, 0, 0, sc.width, sc.height);
-        _fc = sc;
+
+      // Kompres — resize jika > 1200px
+      const MAX_W=1200;
+      let _fc=fc;
+      if(fc.width>MAX_W){
+        const sc=document.createElement("canvas");
+        sc.width=MAX_W;
+        sc.height=Math.round(fc.height*MAX_W/fc.width);
+        sc.getContext("2d").drawImage(fc,0,0,sc.width,sc.height);
+        _fc=sc;
       }
-      let quality = 0.85;
-      let finalDataURL = _fc.toDataURL("image/jpeg", quality);
-      // Kalau masih > 4MB (base64 ~5.5MB), kurangi quality
-      while (finalDataURL.length > 5.5 * 1024 * 1024 && quality > 0.3) {
-        quality -= 0.1;
-        finalDataURL = _fc.toDataURL("image/jpeg", quality);
+      let quality=0.85;
+      let finalDataURL=_fc.toDataURL("image/jpeg",quality);
+      while(finalDataURL.length>5.5*1024*1024&&quality>0.3){
+        quality-=0.1;
+        finalDataURL=_fc.toDataURL("image/jpeg",quality);
       }
-      if (!finalDataURL || finalDataURL.length < 200) throw new Error("Canvas kosong.");
+      if(!finalDataURL||finalDataURL.length<200)throw new Error("Canvas kosong.");
 
-      // 2. Buat folder path: {branch_id}/{nama_guest}_{tanggal}T{waktu}
-      //    Struktur: photos/{branchId}/{NamaGuest}_{YYYY-MM-DD}T{HH-MM-SS}/noedit/foto_01.jpg
-      //                                                                     /edit/hasil.jpg
-      const namaGuest  = (user.nama||"guest").replace(/[^a-zA-Z0-9]/g,"_");
-      const now        = new Date();
-      const tglStr     = now.toISOString().slice(0,10);
-      const jamStr     = now.toTimeString().slice(0,8).replace(/:/g,"-");
-      const sessionKey = `${namaGuest}_${tglStr}T${jamStr}`;
-      const folderPath = `${branchId}/${sessionKey}`;
-      const noeditPath = `${folderPath}/noedit`;
-      const editPath   = `${folderPath}/edit`;
+      // 2. Upload hasil ke folder edit/ dalam sesi yang sama
+      //    path: {sessionFolderPath}/edit/hasil.jpg
+      const editPath = `${sessionFolderPath}/edit/hasil.jpg`;
+      showOverlay("Mengupload foto hasil edit...");
+      setProgress(0,1);
 
-      // 3. Upload foto asli (noedit) → photos/{folder}/noedit/foto_01.jpg
-      const fotosToUpload = slotPhotos.filter(Boolean);
-      showOverlay(`Mengupload ${fotosToUpload.length} foto asli...`);
-      setProgress(0, fotosToUpload.length + 1);
-
-      for(let i=0;i<fotosToUpload.length;i++){
-        const blob  = dataURLtoBlob(fotosToUpload[i]);
-        const fname = `foto_${String(i+1).padStart(2,"0")}.jpg`;
-        const path  = `${noeditPath}/${fname}`;
-        const {error}=await supabase.storage.from("photos").upload(path,blob,{contentType:"image/jpeg",upsert:true});
-        if(error)console.warn("Upload foto gagal:",error.message);
-        setProgress(i+1, fotosToUpload.length+1);
-      }
-
-      // 4. Upload foto hasil edit → photos/{folder}/edit/hasil.jpg
-      document.getElementById("uploadDesc").textContent="Mengupload foto hasil edit...";
       const hasilBlob=dataURLtoBlob(finalDataURL);
-      const hasilPath=`${editPath}/hasil.jpg`;
-      const {error:hasilErr}=await supabase.storage.from("photos")
-        .upload(hasilPath,hasilBlob,{contentType:"image/jpeg",upsert:true});
-      if(hasilErr)throw new Error("Gagal upload hasil: "+hasilErr.message);
-      setProgress(fotosToUpload.length+1, fotosToUpload.length+1);
+      const {error:hasilErr}=await supabase.storage
+      .from("photos")
+      .upload(editPath, hasilBlob, {contentType:"image/jpeg", upsert:false});
+      if(hasilErr) throw new Error("Gagal upload hasil: "+hasilErr.message);
+      setProgress(1,1);
 
-      // 5. Ambil signed URL hasil.jpg (bucket private → pakai signedUrl, valid 1 jam)
+      // 3. Buat signed URL hasil
       const {data:signedData, error:signErr}=await supabase.storage
-        .from("photos").createSignedUrl(hasilPath, 3600);
+        .from("photos").createSignedUrl(editPath,3600);
       if(signErr) throw new Error("Gagal buat signed URL: "+signErr.message);
-      const finalUrl = signedData.signedUrl;
+      const finalUrl=signedData.signedUrl;
 
       hideOverlay();
 
-      // 6. Simpan metadata ke localStorage (TANPA foto besar)
-      const meta={
-        id:user.id, nama:user.nama, nohp:user.nohp,
-        email:user.email, session_id:user.session_id, paket:user.paket,
-        slotPhotos: slotPhotos, // untuk edit ulang
-        folderPath,             // path di Supabase
-        hasilPath,              // path di storage untuk generate ulang signed URL
-        finalUrl,               // signed URL hasil edit (valid 1 jam)
-        layout:{
-          id:currentLayout.id, nama:currentLayout.nama,
-          orientasi:currentOrientasi, rows:currentLayout.rows,
-          cols:currentLayout.cols, isStrip:currentLayout.isStrip??false,
+      // 4. Simpan ke sessionStorage untuk cetak.html
+      const cetakData = {
+        finalUrl,
+        editPath,
+        sessionFolderPath,
+        guestNama: guestInfo.nama,
+        layout: {
+          id: currentLayout.id, nama: currentLayout.nama,
+          orientasi: currentOrientasi, rows: currentLayout.rows,
+          cols: currentLayout.cols, isStrip: currentLayout.isStrip ?? false,
         },
-        frame:currentFrame??null,
-        filter:currentFilter,
-        stiker:activeStiker,
+        frame:   currentFrame ?? null,
+        filter:  currentFilter,
+        stiker:  activeStiker,
       };
-      localStorage.setItem("currentUser",JSON.stringify(meta));
-      localStorage.removeItem("finalImage"); // bersihkan versi lama
+      sessionStorage.setItem("cetakData", JSON.stringify(cetakData));
 
       msg.style.color="green"; msg.textContent="✅ Upload selesai!";
-      window.location.href="cetak.html";
+      setTimeout(()=>{ window.location.href="cetak.html"; }, 800);
 
-    }catch(e){
+    } catch(e) {
       hideOverlay();
       msg.style.color="red"; msg.textContent="❌ "+e.message;
-      btn.disabled=false; btn.textContent="🖨️ Cetak →";
+      btn.disabled=false;
     }
   };
 </script>

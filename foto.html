@@ -251,7 +251,8 @@
   <div class="preview-grid" id="preview"></div>
 </div>
 
-<script>
+<script type="module">
+  import { supabase } from "./assets/js/supabase.js";
   (function() {
     // Elemen
     const video          = document.getElementById("video");
@@ -457,15 +458,56 @@
     };
 
     // Selesai sesi
-    window.finishSession = function() {
-      if (user.foto.length === 0) {
-        msgFoto.textContent = "Ambil minimal 1 foto dulu!";
-        return;
-      }
-      clearInterval(sessionTimer);
-      stopCurrentStream();
-      window.location.href = "pilih-foto.html";
-    };
+    window.finishSession = async function() {
+
+if (user.foto.length === 0) {
+  msgFoto.textContent = "Ambil minimal 1 foto dulu!";
+  return;
+}
+
+btnSelesai.disabled = true;
+msgFoto.textContent = "Mengupload foto...";
+
+try {
+
+  const now = new Date();
+  const timestamp = now.toISOString().split("T")[0]; // format: YYYY-MM-DD
+  const safeNama = user.nama.replace(/[^a-zA-Z0-9]/g, "");
+
+  const basePath = `${user.branch_id}/${safeNama}_${timestamp}`;
+
+  for (let i = 0; i < user.foto.length; i++) {
+
+    const res = await fetch(user.foto[i]);
+    const blob = await res.blob();
+
+    const filePath = `${basePath}/asli/foto_${i + 1}.jpg`;
+
+    const { error } = await supabase.storage
+      .from("photos") // nama bucket kamu
+      .upload(filePath, blob, {
+        contentType: "image/jpeg",
+        upsert: false
+      });
+
+    if (error) throw error;
+  }
+
+  clearInterval(sessionTimer);
+  stopCurrentStream();
+
+  msgFoto.textContent = "Upload berhasil!";
+
+  setTimeout(() => {
+    window.location.href = "tutorial.html";
+  }, 1000);
+
+} catch (err) {
+  console.error("Upload error:", err);
+  msgFoto.textContent = "Gagal upload foto. Coba lagi.";
+  btnSelesai.disabled = false;
+}
+};
 
     startSessionTimer();
     updateCounter();

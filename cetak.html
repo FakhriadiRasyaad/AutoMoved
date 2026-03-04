@@ -5,7 +5,6 @@
   <title>Cetak Foto</title>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/css/styles.css">
- 
 </head>
 <body>
 
@@ -17,7 +16,7 @@
       <h2>Preview Hasil</h2>
       <div class="cetak-canvas-box">
         <p class="no-preview" id="noPreview">⏳ Memuat preview...</p>
-        <img id="previewImg" alt="Preview">
+        <img id="previewImg" alt="Preview" style="display:none;">
       </div>
       <p id="infoLayout" style="font-size:11px;color:#888;margin-top:8px;text-align:center;"></p>
     </div>
@@ -26,7 +25,6 @@
       <div class="cetak-card">
         <h2>Info Sesi</h2>
         <div class="info-row"><span>Nama</span>   <strong id="infoNama">-</strong></div>
-        <div class="info-row"><span>Paket</span>  <strong id="infoPaket">-</strong></div>
         <div class="info-row"><span>Layout</span> <strong id="infoLayoutName">-</strong></div>
         <div class="info-row"><span>Filter</span> <strong id="infoFilter">-</strong></div>
         <div class="info-row"><span>Frame</span>  <strong id="infoFrame">-</strong></div>
@@ -54,62 +52,48 @@
   </div>
 </div>
 
-<!-- Print area — gambar blob diset saat cetak -->
-<div id="printArea"><img id="printImg" alt="Print"></div>
+<!-- Print area -->
+<div id="printArea" style="display:none;"></div>
 
 <script type="module">
   import { supabase } from "./assets/js/supabase.js";
 
-  let user     = null;
-  let admin    = null;
-  let finalUrl = null;   // signed URL Supabase
-  let blobUrl  = null;   // blob URL lokal — untuk print & download tanpa CORS
-  let qty      = 1;
-
-  // ── Guard & init ──────────────────────────────────────────────────────
+  // ── Guard & ambil data dari sessionStorage ────────────────────────────
+  let cetakData = null;
   try {
-    admin = JSON.parse(localStorage.getItem("currentAdmin") || "null");
-    user  = JSON.parse(localStorage.getItem("currentUser")  || "null");
-    if (!admin || !user) { window.location.href = "index.html"; }
-  } catch(e) { window.location.href = "index.html"; }
+    const raw = sessionStorage.getItem("cetakData");
+    const gd  = sessionStorage.getItem("guestData");
+    if (!raw || !gd) { window.location.href = "guest-login.html"; }
+    cetakData = JSON.parse(raw);
+  } catch(e) { window.location.href = "guest-login.html"; }
 
-  finalUrl = user?.finalUrl ?? null;
-
-  if (!finalUrl && !user?.hasilPath) {
-    setPreviewError("❌ Foto belum diupload. Kembali ke pilih-frame dan klik Cetak ulang.");
-  } else if (!finalUrl && user?.hasilPath) {
-    refreshSignedUrl().then(ok => { if (ok) loadPreview(); });
-  } else {
-    loadPreview();
-  }
-
-  fillInfoSesi();
+  let finalUrl = cetakData.finalUrl;   // signed URL dari pilih-frame.html
+  let blobUrl  = null;                 // blob URL lokal untuk print & download
+  let qty      = 1;
 
   // ── Isi info sesi ─────────────────────────────────────────────────────
   function fillInfoSesi() {
-    if (!user) return;
-    document.getElementById("infoNama").textContent       = user.nama        ?? "-";
-    document.getElementById("infoPaket").textContent      = user.paket?.nama ?? "-";
-    document.getElementById("infoLayoutName").textContent = user.layout?.nama ?? "-";
+    document.getElementById("infoNama").textContent       = cetakData.guestNama    ?? "-";
+    document.getElementById("infoLayoutName").textContent = cetakData.layout?.nama ?? "-";
     document.getElementById("infoFilter").textContent     =
-      (!user.filter || user.filter === "none") ? "Original" : "Aktif";
-    document.getElementById("infoFrame").textContent      = user.frame?.name ?? "Tanpa Frame";
+      (!cetakData.filter || cetakData.filter === "none") ? "Original" : "Aktif";
+    document.getElementById("infoFrame").textContent      = cetakData.frame?.name  ?? "Tanpa Frame";
     document.getElementById("infoStiker").textContent     =
-      (user.stiker?.length > 0) ? `${user.stiker.length} stiker` : "Tidak ada";
+      (cetakData.stiker?.length > 0) ? `${cetakData.stiker.length} stiker` : "Tidak ada";
     document.getElementById("infoLayout").textContent     =
-      `${user.layout?.orientasi ?? ""} · ${user.layout?.rows ?? "-"}×${user.layout?.cols ?? "-"}`;
+      `${cetakData.layout?.orientasi ?? ""} · ${cetakData.layout?.rows ?? "-"}×${cetakData.layout?.cols ?? "-"}`;
   }
 
-  // ── Refresh signed URL ────────────────────────────────────────────────
+  // ── Refresh signed URL jika expired ───────────────────────────────────
   async function refreshSignedUrl() {
     try {
       setPreviewMsg("⏳ Memperbarui akses foto...");
       const { data, error } = await supabase.storage
-        .from("photos").createSignedUrl(user.hasilPath, 3600);
+        .from("photos").createSignedUrl(cetakData.editPath, 3600);
       if (error || !data?.signedUrl) throw new Error(error?.message ?? "Gagal buat signed URL");
-      finalUrl      = data.signedUrl;
-      user.finalUrl = finalUrl;
-      localStorage.setItem("currentUser", JSON.stringify(user));
+      finalUrl          = data.signedUrl;
+      cetakData.finalUrl = finalUrl;
+      sessionStorage.setItem("cetakData", JSON.stringify(cetakData));
       return true;
     } catch(e) {
       setPreviewError("❌ Gagal akses foto: " + e.message);
@@ -117,34 +101,28 @@
     }
   }
 
-  // ── Load preview — fetch → blob (hindari CORS saat print) ────────────
+  // ── Load preview — fetch → blob ───────────────────────────────────────
   async function loadPreview() {
     setPreviewMsg("⏳ Memuat preview...");
     try {
-      const res = await fetch(finalUrl);
+      let res = await fetch(finalUrl);
       if (!res.ok) {
-        // Mungkin signed URL expired — coba refresh sekali
+        // Signed URL mungkin expired — refresh sekali
         const ok = await refreshSignedUrl();
         if (!ok) return;
-        const res2 = await fetch(finalUrl);
-        if (!res2.ok) throw new Error("HTTP " + res2.status);
-        const blob2 = await res2.blob();
-        blobUrl = URL.createObjectURL(blob2);
-      } else {
-        const blob = await res.blob();
-        blobUrl = URL.createObjectURL(blob);
+        res = await fetch(finalUrl);
+        if (!res.ok) throw new Error("HTTP " + res.status);
       }
+      const blob = await res.blob();
+      blobUrl = URL.createObjectURL(blob);
 
-      // Tampilkan preview
       const previewImg = document.getElementById("previewImg");
       previewImg.onload = () => {
         document.getElementById("noPreview").style.display = "none";
         previewImg.style.display = "block";
-        // preview loaded — user klik tombol untuk download
       };
       previewImg.src = blobUrl;
 
-      // Enable tombol — blob sudah siap
       document.getElementById("btnCetak").disabled    = false;
       document.getElementById("btnDownload").disabled = false;
 
@@ -153,61 +131,34 @@
     }
   }
 
-  // ── Auto-save lokal jika Folder B sudah diset ─────────────────────────
-  async function autoSaveLokal() {
-    const storageKey = "folder_admin_" + admin.id;
-    const setting    = JSON.parse(localStorage.getItem(storageKey) || "{}");
-    if (!setting.folderB || !blobUrl) return;
-
-    const nama = (user.nama ?? "guest").replace(/[^a-zA-Z0-9]/g, "_");
-    const tgl  = new Date().toISOString().slice(0, 10);
-    const link = document.createElement("a");
-    link.href  = blobUrl;
-    link.download = `${nama}_${tgl}.jpg`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    showMsg("💾 Tersimpan otomatis: " + link.download, "#7b1fa2");
-  }
-
   // ── Qty ───────────────────────────────────────────────────────────────
   window.changeQty = function(delta) {
     qty = Math.max(1, Math.min(3, qty + delta));
     document.getElementById("qtyDisplay").textContent = qty;
   };
 
-  // ── CETAK — pakai blobUrl (sudah lokal, tidak ada CORS) ───────────────
+  // ── CETAK ─────────────────────────────────────────────────────────────
   window.doCetak = function() {
     if (!blobUrl) { showMsg("❌ Gambar belum siap.", "red"); return; }
     showMsg("⏳ Menyiapkan cetak...", "#666");
 
-    const printImg  = document.getElementById("printImg");
     const printArea = document.getElementById("printArea");
-
-    // Untuk multi-copy: duplikasi halaman dalam 1 print job via CSS
-    if (qty > 1) {
-      // Buat halaman cetak dengan qty copies menggunakan CSS repeat
-      let pages = "";
-      for (let i = 0; i < qty; i++) {
-        pages += `<div style="page-break-after:${i < qty - 1 ? 'always' : 'avoid'};
-          width:100vw;height:100vh;display:flex;align-items:center;
-          justify-content:center;background:white;">
-          <img src="${blobUrl}" style="max-width:100%;max-height:100vh;object-fit:contain;">
-        </div>`;
-      }
-      printArea.innerHTML = pages;
-    } else {
-      printImg.src = blobUrl;
-      printArea.innerHTML = `<img src="${blobUrl}" style="max-width:100%;max-height:100vh;object-fit:contain;">`;
+    let pages = "";
+    for (let i = 0; i < qty; i++) {
+      pages += `<div style="page-break-after:${i < qty - 1 ? 'always' : 'avoid'};
+        width:100vw;height:100vh;display:flex;align-items:center;
+        justify-content:center;background:white;">
+        <img src="${blobUrl}" style="max-width:100%;max-height:100vh;object-fit:contain;">
+      </div>`;
     }
-
+    printArea.innerHTML  = pages;
     printArea.style.display = "flex";
+
     setTimeout(() => {
       window.print();
-      // Reset setelah print
       setTimeout(() => {
         printArea.style.display = "none";
-        printArea.innerHTML = `<img id="printImg" alt="Print">`;
+        printArea.innerHTML = "";
         showMsg("✅ " + qty + "x halaman dikirim ke printer!", "green");
       }, 500);
     }, 200);
@@ -216,10 +167,10 @@
   // ── DOWNLOAD ──────────────────────────────────────────────────────────
   window.doDownload = function() {
     if (!blobUrl) { showMsg("❌ Gambar belum siap.", "red"); return; }
-    const nama = (user.nama ?? "foto").replace(/[^a-zA-Z0-9]/g, "_");
+    const nama = (cetakData.guestNama ?? "foto").replace(/[^a-zA-Z0-9]/g, "_");
     const tgl  = new Date().toISOString().slice(0, 10);
     const link = document.createElement("a");
-    link.href  = blobUrl;
+    link.href     = blobUrl;
     link.download = `photobooth_${nama}_${tgl}.jpg`;
     document.body.appendChild(link);
     link.click();
@@ -228,18 +179,13 @@
   };
 
   // ── Selesai ───────────────────────────────────────────────────────────
-  window.selesaiSesi = async function() {
-    if (!confirm("Sesi selesai? Data tamu akan direset.")) return;
-    showMsg("⏳ Menyimpan...", "#666");
-    if (user?.session_id) {
-      try {
-        await supabase.from("sessions").update({ status: "done" }).eq("id", user.session_id);
-      } catch(e) { console.warn(e); }
-    }
+  window.selesaiSesi = function() {
+    if (!confirm("Sesi selesai? Kamu akan kembali ke halaman login.")) return;
     if (blobUrl) URL.revokeObjectURL(blobUrl);
-    localStorage.removeItem("finalImage");
-    localStorage.removeItem("currentUser");
-    window.location.href = "tutorial.html";
+    sessionStorage.removeItem("cetakData");
+    sessionStorage.removeItem("guestData");
+    sessionStorage.removeItem("selectedBranch");
+    window.location.href = "guest-login.html";
   };
 
   // ── Helpers ───────────────────────────────────────────────────────────
@@ -248,12 +194,21 @@
     el.textContent = text; el.style.display = "block";
     document.getElementById("previewImg").style.display = "none";
   }
-  function setPreviewError(text) {
-    setPreviewMsg(text);
-  }
+  function setPreviewError(text) { setPreviewMsg(text); }
   function showMsg(text, color) {
     const el = document.getElementById("msgCetak");
     el.textContent = text; el.style.color = color;
+  }
+
+  // ── Start ─────────────────────────────────────────────────────────────
+  fillInfoSesi();
+
+  if (!finalUrl && cetakData.editPath) {
+    refreshSignedUrl().then(ok => { if (ok) loadPreview(); });
+  } else if (finalUrl) {
+    loadPreview();
+  } else {
+    setPreviewError("❌ Data foto tidak ditemukan. Kembali ke edit.");
   }
 </script>
 
